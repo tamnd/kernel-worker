@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "kernel-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-18",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "kernel.go-mizu.dev",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none",
+    "run_worker_first": true
+  }
+}

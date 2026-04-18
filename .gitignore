@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.env.local
+_build/
+_upstream/
+dist/
+*.log
+.DS_Store

@@ -1,0 +1,30 @@
+{
+  "name": "kernel-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vietnamese Linux kernel docs snapshot and Cloudflare Worker for kernel.go-mizu.dev",
+  "type": "module",
+  "scripts": {
+    "build:static": "node ./scripts/build-static.mjs",
+    "dev": "wrangler dev",
+    "dev:wrangler": "wrangler dev",
+    "preview": "node ./scripts/preview-local.mjs",
+    "deploy": "npm run build:static && wrangler deploy",
+    "cf-typegen": "wrangler types"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "linux",
+    "kernel",
+    "vietnamese",
+    "static-site",
+    "kernel-docs"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260409.1",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.81.0"
+  }
+}
