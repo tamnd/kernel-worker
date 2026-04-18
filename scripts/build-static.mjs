@@ -11,12 +11,13 @@ const DIST_DIR = path.join(ROOT, "dist");
 const VENV_DIR = path.join(ROOT, "_build", "venv");
 
 const UPSTREAM_URL = "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git";
-const SPARSE_PATHS = ["Documentation", "tools", "scripts", "include", "COPYING", "LICENSES"];
+const SPARSE_PATHS = ["Documentation", "tools", "scripts", "include", "COPYING", "LICENSES", "Makefile"];
 
 const SKIP_SPHINX = process.env.SKIP_SPHINX === "1";
 
 await ensureDocsRepo();
 const sha = await readUpstreamSha();
+const kernelVersion = await readKernelVersion();
 
 if (SKIP_SPHINX) {
   console.log("SKIP_SPHINX=1 set. Writing minimal landing page to dist/.");
@@ -29,7 +30,7 @@ await ensureSparseClone(sha);
 await overlayVietnameseTranslations();
 await pruneBrokenTranslatedIncludes();
 await ensureSphinxVenv();
-await runSphinxBuild();
+await runSphinxBuild(kernelVersion);
 await copyBuildToDist();
 
 console.log(`Copied ${BUILD_DIR} to ${DIST_DIR}`);
@@ -53,6 +54,17 @@ async function readUpstreamSha() {
     throw new Error(`No commit line found in ${upstreamFile}`);
   }
   return match[1];
+}
+
+async function readKernelVersion() {
+  // Read VERSION and PATCHLEVEL from the sparse-cloned kernel Makefile.
+  try {
+    const makefile = await readFile(path.join(UPSTREAM_DIR, "Makefile"), "utf8");
+    const ver = makefile.match(/^VERSION\s*=\s*(\d+)/m)?.[1];
+    const pl = makefile.match(/^PATCHLEVEL\s*=\s*(\d+)/m)?.[1];
+    if (ver && pl) return `${ver}.${pl}`;
+  } catch {}
+  return "unknown";
 }
 
 async function ensureSparseClone(sha) {
@@ -139,7 +151,13 @@ async function pruneTreeFor(dir) {
       continue;
     }
     const content = await readFile(full, "utf8");
-    const matches = [...content.matchAll(/^\s*\.\.\s+include::\s*(\S+)/gm)];
+    // Match `.. include::`, csv-table `:file:`, and kernel-doc `:exception-file:` refs
+    const includeRe = /^\s*\.\.\s+include::\s*(\S+)/gm;
+    const fileOptRe = /^\s+:(?:file|exception-file):\s*(\S+)/gm;
+    const matches = [
+      ...[...content.matchAll(includeRe)],
+      ...[...content.matchAll(fileOptRe)],
+    ];
     let broken = false;
     for (const match of matches) {
       const target = match[1];
@@ -207,17 +225,22 @@ async function ensureSphinxVenv() {
   }
 }
 
-async function runSphinxBuild() {
+async function runSphinxBuild(kernelVersion = "unknown") {
   const sphinxBuild = path.join(VENV_DIR, "bin", "sphinx-build");
   const source = path.join(UPSTREAM_DIR, "Documentation");
   await rm(BUILD_DIR, { recursive: true, force: true });
   await mkdir(BUILD_DIR, { recursive: true });
-  console.log(`Running sphinx-build on ${source} ...`);
-  await run(sphinxBuild, ["-b", "html", "-j", "auto", "--keep-going", source, BUILD_DIR], {
+  console.log(`Running sphinx-build on ${source} (kernel ${kernelVersion}) ...`);
+  await run(sphinxBuild, [
+    "-b", "html", "-j", "auto", "--keep-going",
+    "-D", `version=${kernelVersion}`,
+    "-D", `release=${kernelVersion}`,
+    source, BUILD_DIR,
+  ], {
     env: {
       srctree: UPSTREAM_DIR,
       SRCTREE: UPSTREAM_DIR,
-      KERNELVERSION: "unknown",
+      KERNELVERSION: kernelVersion,
       PYTHONDONTWRITEBYTECODE: "1",
     },
   });
