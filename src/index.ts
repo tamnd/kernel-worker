@@ -5,6 +5,60 @@ interface Env {
 const UPSTREAM_ORIGIN = "https://www.kernel.org";
 const UPSTREAM_PATH_PREFIX = "/doc/html/latest";
 
+// Sphinx UI strings + English toctree labels → Vietnamese replacements.
+// Applied only to vi_VN_mt HTML pages so the sidebar/theme text is localized.
+const VI_STRINGS: [string, string][] = [
+  // Sphinx theme UI strings
+  [">Quick search<", ">Tìm kiếm nhanh<"],
+  ["placeholder=\"Search docs\"", "placeholder=\"Tìm kiếm tài liệu\""],
+  [">Contents<", ">Mục lục<"],
+  [">This Page<", ">Trang này<"],
+  [">Show Source<", ">Xem nguồn<"],
+  [">Navigation<", ">Điều hướng<"],
+  [">Table of Contents<", ">Mục lục<"],
+  [">Search<", ">Tìm kiếm<"],
+  [">Index<", ">Chỉ mục<"],
+  [">next<", ">tiếp theo<"],
+  [">previous<", ">trước đó<"],
+  [">Next<", ">Tiếp theo<"],
+  [">Previous<", ">Trước đó<"],
+  // English root toctree labels that bleed into the global sidebar
+  [">Development process<", ">Quá trình phát triển<"],
+  [">Submitting patches<", ">Gửi bản vá<"],
+  [">Code of conduct<", ">Quy tắc ứng xử<"],
+  [">Maintainer handbook<", ">Sổ tay bảo trì<"],
+  [">All development-process docs<", ">Tất cả tài liệu quá trình phát triển<"],
+  [">Core API<", ">API cốt lõi<"],
+  [">Driver APIs<", ">API trình điều khiển<"],
+  [">Subsystems<", ">Hệ thống con<"],
+  [">Locking<", ">Khóa<"],
+  [">Licensing rules<", ">Quy định cấp phép<"],
+  [">Writing documentation<", ">Viết tài liệu<"],
+  [">Development tools<", ">Công cụ phát triển<"],
+  [">Testing guide<", ">Hướng dẫn kiểm thử<"],
+  [">Hacking guide<", ">Hướng dẫn hack<"],
+  [">Tracing<", ">Truy vết<"],
+  [">Fault injection<", ">Tiêm lỗi<"],
+  [">Livepatching<", ">Vá trực tuyến<"],
+  [">Administration<", ">Quản trị<"],
+  [">Build system<", ">Hệ thống build<"],
+  [">Reporting issues<", ">Báo cáo vấn đề<"],
+  [">Userspace tools<", ">Công cụ không gian người dùng<"],
+  [">Userspace API<", ">API không gian người dùng<"],
+  [">Firmware<", ">Phần sụn<"],
+  [">Firmware and Devicetree<", ">Phần sụn và cây thiết bị<"],
+  [">CPU architectures<", ">Kiến trúc CPU<"],
+  [">Unsorted documentation<", ">Tài liệu chưa phân loại<"],
+  [">Translations<", ">Bản dịch<"],
+];
+
+function rewriteViStrings(body: string): string {
+  for (const [from, to] of VI_STRINGS) {
+    body = body.replaceAll(from, to);
+  }
+  return body;
+}
+
 function rewriteKernelOrgReferences(body: string, requestURL: URL): string {
   const targetOrigin = requestURL.origin;
   return body
@@ -22,21 +76,61 @@ export default {
       return proxyToKernelOrg(request, url);
     }
 
+    // Redirect root and English doc paths to the Vietnamese machine-translation tree.
+    // Paths already under /translations/ or /_static/ are passed through directly.
+    const p = url.pathname;
+    if (p === "/" || p === "/index.html") {
+      return Response.redirect(new URL("/translations/vi_VN_mt/", url).toString(), 302);
+    }
+    if (!p.startsWith("/translations/") && !p.startsWith("/_static/") && !p.startsWith("/_sources/") && !p.endsWith(".html")) {
+      const viPath = `/translations/vi_VN_mt${p}`;
+      const viURL = new URL(url);
+      viURL.pathname = viPath;
+      const viResponse = await env.ASSETS.fetch(new Request(viURL, request));
+      if (viResponse.status !== 404) {
+        return Response.redirect(new URL(viPath, url).toString(), 302);
+      }
+    }
+
     const assetResponse = await env.ASSETS.fetch(request);
     if (assetResponse.status !== 404) {
-      const contentType = assetResponse.headers.get("content-type") ?? "";
-      if (!contentType.startsWith("text/html")) {
-        return assetResponse;
+      // Cloudflare Assets redirects .html → extensionless (307). Follow the
+      // redirect internally from Assets directly so it bypasses our vi_VN_mt
+      // redirect and the browser stays on the English page.
+      if ((assetResponse.status === 307 || assetResponse.status === 308) && p.endsWith(".html")) {
+        const loc = assetResponse.headers.get("location");
+        if (loc) {
+          const redirectURL = new URL(loc, url);
+          const englishResponse = await env.ASSETS.fetch(new Request(redirectURL, request));
+          if (englishResponse.status !== 404) {
+            return englishResponse;
+          }
+        }
       }
-      const body = await assetResponse.text();
-      const rewritten = rewriteKernelOrgReferences(body, url);
-      const headers = new Headers(assetResponse.headers);
-      headers.delete("content-length");
-      return new Response(rewritten, {
-        headers,
-        status: assetResponse.status,
-        statusText: assetResponse.statusText,
-      });
+      if (url.pathname.startsWith("/_sources/") && (url.pathname.endsWith(".txt") || url.pathname.endsWith(".rst"))) {
+        const headers = new Headers(assetResponse.headers);
+        headers.set("content-type", "text/plain; charset=utf-8");
+        return new Response(assetResponse.body, { headers, status: assetResponse.status, statusText: assetResponse.statusText });
+      }
+      if (url.pathname.startsWith("/_static/")) {
+        const headers = new Headers(assetResponse.headers);
+        headers.set("cache-control", "public, max-age=86400");
+        return new Response(assetResponse.body, {
+          headers,
+          status: assetResponse.status,
+          statusText: assetResponse.statusText,
+        });
+      }
+      // Rewrite UI strings on vi_VN_mt HTML pages so sidebar/theme text is Vietnamese.
+      const contentType = assetResponse.headers.get("content-type") ?? "";
+      if (p.startsWith("/translations/vi_VN_mt/") && contentType.startsWith("text/html")) {
+        const body = await assetResponse.text();
+        const rewritten = rewriteViStrings(body);
+        const headers = new Headers(assetResponse.headers);
+        headers.delete("content-length");
+        return new Response(rewritten, { headers, status: assetResponse.status, statusText: assetResponse.statusText });
+      }
+      return assetResponse;
     }
 
     return proxyToKernelOrg(request, url);
