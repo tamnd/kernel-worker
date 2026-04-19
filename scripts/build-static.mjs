@@ -123,28 +123,35 @@ async function overlayVietnameseTranslations() {
 }
 
 async function pruneBrokenTranslatedIncludes() {
-  const root = path.join(UPSTREAM_DIR, "Documentation", "translations");
+  const translationsRoot = path.join(UPSTREAM_DIR, "Documentation", "translations");
+  const docRoot = path.join(UPSTREAM_DIR, "Documentation");
   for (const sub of ["vi_VN_mt", "vi_VN"]) {
-    const dir = path.join(root, sub);
+    const dir = path.join(translationsRoot, sub);
     try {
       await stat(dir);
     } catch {
       continue;
     }
-    const pruned = await pruneTreeFor(dir);
+    const { pruned, rewritten } = await pruneTreeFor(dir, path.join(translationsRoot, sub), docRoot);
+    if (rewritten) {
+      console.log(`Rewrote broken relative includes in ${rewritten} translated file(s) under ${sub}/ to reach upstream sources`);
+    }
     if (pruned) {
       console.log(`Pruned ${pruned} translated file(s) with unresolved includes from ${sub}/`);
     }
   }
 }
 
-async function pruneTreeFor(dir) {
+async function pruneTreeFor(dir, transRoot, docRoot) {
   let pruned = 0;
+  let rewritten = 0;
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      pruned += await pruneTreeFor(full);
+      const sub = await pruneTreeFor(full, transRoot, docRoot);
+      pruned += sub.pruned;
+      rewritten += sub.rewritten;
       continue;
     }
     if (!entry.name.endsWith(".rst")) {
@@ -152,40 +159,82 @@ async function pruneTreeFor(dir) {
     }
     const content = await readFile(full, "utf8");
     // Match `.. include::`, csv-table `:file:`, and kernel-doc `:exception-file:` refs
-    const includeRe = /^\s*\.\.\s+include::\s*(\S+)/gm;
-    const fileOptRe = /^\s+:(?:file|exception-file):\s*(\S+)/gm;
+    const includeRe = /^(\s*\.\.\s+include::\s*)(\S+)/gm;
+    const fileOptRe = /^(\s+:(?:file|exception-file):\s*)(\S+)/gm;
     const matches = [
-      ...[...content.matchAll(includeRe)],
-      ...[...content.matchAll(fileOptRe)],
-    ];
-    let broken = false;
-    for (const match of matches) {
-      const target = match[1];
-      // `.. include:: <isonum.txt>` and friends resolve against docutils' own
-      // standard-includes dir, not the filesystem. Skip these.
-      if (target.startsWith("<") && target.endsWith(">")) {
-        continue;
-      }
-      if (target.startsWith("/")) {
-        continue;
-      }
-      if (target.includes("disclaimer-")) {
-        continue;
-      }
-      const resolved = path.resolve(path.dirname(full), target);
-      try {
-        await stat(resolved);
-      } catch {
-        broken = true;
-        break;
-      }
-    }
-    if (broken) {
+      ...content.matchAll(includeRe),
+      ...content.matchAll(fileOptRe),
+    ].sort((a, b) => a.index - b.index);
+
+    const fileDir = path.dirname(full);
+    const checks = await Promise.all(matches.map((m) => classifyInclude(m[2], fileDir, transRoot, docRoot)));
+
+    if (checks.some((c) => c.action === "broken")) {
       await unlink(full);
       pruned += 1;
+      continue;
     }
+
+    const rewriteOps = matches
+      .map((m, i) => ({ match: m, ...checks[i] }))
+      .filter((x) => x.action === "rewrite");
+
+    if (rewriteOps.length === 0) {
+      continue;
+    }
+
+    let out = content;
+    // Apply in reverse so earlier match indices remain valid.
+    for (const op of [...rewriteOps].reverse()) {
+      const { match, newTarget } = op;
+      const replacement = match[1] + newTarget;
+      out = out.slice(0, match.index) + replacement + out.slice(match.index + match[0].length);
+    }
+    await writeFile(full, out, "utf8");
+    rewritten += 1;
   }
-  return pruned;
+  return { pruned, rewritten };
+}
+
+// For a relative include target on a translated page, decide whether it is
+// already fine, needs rewriting to point at the upstream English source, or
+// is truly broken (file exists nowhere we can reach).
+async function classifyInclude(target, fileDir, transRoot, docRoot) {
+  // `.. include:: <isonum.txt>` resolves against docutils' own
+  // standard-includes dir, not the filesystem.
+  if (target.startsWith("<") && target.endsWith(">")) return { action: "ok" };
+  // Absolute paths are Sphinx-rooted, not filesystem-rooted; leave as-is.
+  if (target.startsWith("/")) return { action: "ok" };
+  // The translated-disclaimer include is always valid after overlay.
+  if (target.includes("disclaimer-")) return { action: "ok" };
+
+  const resolved = path.resolve(fileDir, target);
+  try {
+    await stat(resolved);
+    return { action: "ok" };
+  } catch {}
+
+  // Machine translation copied the include path from the English file
+  // verbatim, but the Vietnamese file lives two directories deeper inside
+  // translations/vi_VN_mt/. If the resolved path sits inside the translation
+  // root, the same relative offset applied to Documentation/ reaches the
+  // English source. Rewrite the include to point there — the included
+  // content (typically a plain .txt or CSV data file) is the same text the
+  // English build consumes.
+  const relFromTrans = path.relative(transRoot, resolved);
+  if (relFromTrans.startsWith("..") || path.isAbsolute(relFromTrans)) {
+    return { action: "broken" };
+  }
+  const upstreamPath = path.resolve(docRoot, relFromTrans);
+  try {
+    await stat(upstreamPath);
+    return {
+      action: "rewrite",
+      newTarget: path.relative(fileDir, upstreamPath),
+    };
+  } catch {
+    return { action: "broken" };
+  }
 }
 
 async function patchTranslationsExtension() {
