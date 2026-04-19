@@ -157,21 +157,21 @@ export default {
       }
     }
 
-    const assetResponse = await env.ASSETS.fetch(request);
-    if (assetResponse.status !== 404) {
-      // Cloudflare Assets redirects .html → extensionless (307). Follow the
-      // redirect internally from Assets directly so it bypasses our vi_VN_mt
-      // redirect and the browser stays on the English page.
-      if ((assetResponse.status === 307 || assetResponse.status === 308) && p.endsWith(".html")) {
-        const loc = assetResponse.headers.get("location");
-        if (loc) {
-          const redirectURL = new URL(loc, url);
-          const englishResponse = await env.ASSETS.fetch(new Request(redirectURL, request));
-          if (englishResponse.status !== 404) {
-            return englishResponse;
-          }
+    let assetResponse = await env.ASSETS.fetch(request);
+    // Cloudflare Assets redirects .html → extensionless (307). Follow that
+    // redirect internally and work with the final response so .html requests
+    // get the same body transforms (vi-string rewrites, _sources content-type)
+    // as extensionless requests.
+    if ((assetResponse.status === 307 || assetResponse.status === 308) && p.endsWith(".html")) {
+      const loc = assetResponse.headers.get("location");
+      if (loc) {
+        const follow = await env.ASSETS.fetch(new Request(new URL(loc, url), request));
+        if (follow.status !== 404) {
+          assetResponse = follow;
         }
       }
+    }
+    if (assetResponse.status !== 404) {
       if (url.pathname.startsWith("/_sources/") && (url.pathname.endsWith(".txt") || url.pathname.endsWith(".rst"))) {
         const headers = new Headers(assetResponse.headers);
         headers.set("content-type", "text/plain; charset=utf-8");
