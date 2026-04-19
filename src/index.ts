@@ -44,8 +44,11 @@ const VI_STRINGS: [string, string][] = [
   ["<title>Search &#8212;", "<title>Tìm kiếm &#8212;"],
   ["<title>Index &#8212;", "<title>Chỉ mục &#8212;"],
   // Search page body copy.
+  // Sphinx emits this copy split across two lines with four-space indent,
+  // so the literal must match the exact whitespace between "search" and
+  // "functionality.".
   [
-    "Please activate JavaScript to enable the search functionality.",
+    "Please activate JavaScript to enable the search\n    functionality.",
     "Vui lòng bật JavaScript để sử dụng chức năng tìm kiếm.",
   ],
   [
