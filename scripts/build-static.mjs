@@ -161,6 +161,11 @@ async function pruneTreeFor(dir) {
     let broken = false;
     for (const match of matches) {
       const target = match[1];
+      // `.. include:: <isonum.txt>` and friends resolve against docutils' own
+      // standard-includes dir, not the filesystem. Skip these.
+      if (target.startsWith("<") && target.endsWith(">")) {
+        continue;
+      }
       if (target.startsWith("/")) {
         continue;
       }
