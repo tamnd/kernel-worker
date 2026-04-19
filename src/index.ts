@@ -22,6 +22,28 @@ const VI_STRINGS: [string, string][] = [
   [">previous<", ">trước đó<"],
   [">Next<", ">Tiếp theo<"],
   [">Previous<", ">Trước đó<"],
+  // Admonition titles (Note, Warning, Tip, …). Docutils renders these as
+  // <p class="admonition-title">Note</p>; class name stays English.
+  ["admonition-title\">Note<", "admonition-title\">Lưu ý<"],
+  ["admonition-title\">Warning<", "admonition-title\">Cảnh báo<"],
+  ["admonition-title\">Attention<", "admonition-title\">Chú ý<"],
+  ["admonition-title\">Important<", "admonition-title\">Quan trọng<"],
+  ["admonition-title\">Tip<", "admonition-title\">Mẹo<"],
+  ["admonition-title\">Caution<", "admonition-title\">Cẩn trọng<"],
+  ["admonition-title\">Hint<", "admonition-title\">Gợi ý<"],
+  ["admonition-title\">Danger<", "admonition-title\">Nguy hiểm<"],
+  ["admonition-title\">Error<", "admonition-title\">Lỗi<"],
+  ["admonition-title\">See also<", "admonition-title\">Xem thêm<"],
+  ["admonition-title\">Todo<", "admonition-title\">Việc cần làm<"],
+  // Field-list labels from the :Original:/:Translator: block at the top of
+  // translated files. Only the label node carries these class names, so
+  // translating the inner text is safe.
+  ["field-odd\">Original<", "field-odd\">Bản gốc<"],
+  ["field-even\">Original<", "field-even\">Bản gốc<"],
+  ["field-odd\">Translator<", "field-odd\">Người dịch<"],
+  ["field-even\">Translator<", "field-even\">Người dịch<"],
+  ["field-odd\">Upstream-at<", "field-odd\">Phiên bản gốc<"],
+  ["field-even\">Upstream-at<", "field-even\">Phiên bản gốc<"],
   // English root toctree labels that bleed into the global sidebar
   [">Development process<", ">Quá trình phát triển<"],
   [">Submitting patches<", ">Gửi bản vá<"],
