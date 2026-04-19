@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
@@ -29,6 +29,7 @@ if (SKIP_SPHINX) {
 await ensureSparseClone(sha);
 await overlayVietnameseTranslations();
 await pruneBrokenTranslatedIncludes();
+await copyTranslatedFigureArtifacts();
 await ensureSphinxVenv();
 await runSphinxBuild(kernelVersion);
 await copyBuildToDist();
@@ -196,6 +197,68 @@ async function pruneTreeFor(dir, transRoot, docRoot) {
   return { pruned, rewritten };
 }
 
+// Translated .rst files often reference figure artifacts (.dot/.svg/.png …)
+// by bare filename, expecting them to sit beside the .rst. The upstream
+// overlay copies only .rst files, so these bare references resolve to
+// nothing under translations/<lang>/. kfigure trips on missing .dot files
+// with a bare FileNotFoundError (no graceful fallback) and the build dies
+// mid-write. Copy any missing figure artifact from the English source dir
+// to the translation's matching dir so Sphinx can resolve them locally.
+async function copyTranslatedFigureArtifacts() {
+  const translationsRoot = path.join(UPSTREAM_DIR, "Documentation", "translations");
+  const docRoot = path.join(UPSTREAM_DIR, "Documentation");
+  const directiveRe = /^\s*\.\.\s+(?:kernel-figure|image|figure)::\s*(\S+)/gm;
+  for (const sub of ["vi_VN_mt", "vi_VN"]) {
+    const transRoot = path.join(translationsRoot, sub);
+    try {
+      await stat(transRoot);
+    } catch {
+      continue;
+    }
+    const copied = await copyFiguresFor(transRoot, transRoot, docRoot, directiveRe);
+    if (copied) {
+      console.log(`Copied ${copied} figure artifact(s) from upstream into ${sub}/`);
+    }
+  }
+}
+
+async function copyFiguresFor(dir, transRoot, docRoot, directiveRe) {
+  let copied = 0;
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      copied += await copyFiguresFor(full, transRoot, docRoot, directiveRe);
+      continue;
+    }
+    if (!entry.name.endsWith(".rst")) continue;
+    const content = await readFile(full, "utf8");
+    const fileDir = path.dirname(full);
+    for (const m of content.matchAll(directiveRe)) {
+      const target = m[1];
+      if (target.startsWith("/") || target.startsWith("http://") || target.startsWith("https://")) {
+        continue;
+      }
+      const localPath = path.resolve(fileDir, target);
+      try {
+        await stat(localPath);
+        continue;
+      } catch {}
+      const relFromTransRoot = path.relative(transRoot, fileDir);
+      const upstreamPath = path.resolve(docRoot, relFromTransRoot, target);
+      try {
+        await stat(upstreamPath);
+      } catch {
+        continue;
+      }
+      await mkdir(path.dirname(localPath), { recursive: true });
+      await copyFile(upstreamPath, localPath);
+      copied += 1;
+    }
+  }
+  return copied;
+}
+
 // For a relative include target on a translated page, decide whether it is
 // already fine, needs rewriting to point at the upstream English source, or
 // is truly broken (file exists nowhere we can reach).
@@ -286,7 +349,9 @@ async function runSphinxBuild(kernelVersion = "unknown") {
   await mkdir(BUILD_DIR, { recursive: true });
   console.log(`Running sphinx-build on ${source} (kernel ${kernelVersion}) ...`);
   await run(sphinxBuild, [
-    "-b", "html", "-j", "auto", "--keep-going",
+    // -j 1: parallel workers (-j auto) silently drop output chunks on macOS,
+    // producing ~400 missing HTML pages per full build with no error.
+    "-b", "html", "-j", "1", "--keep-going",
     "-D", `version=${kernelVersion}`,
     "-D", `release=${kernelVersion}`,
     source, BUILD_DIR,
