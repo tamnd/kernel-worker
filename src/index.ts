@@ -59,6 +59,39 @@ function rewriteViStrings(body: string): string {
   return body;
 }
 
+// Paths under Documentation/ that are NOT part of the translated tree — hrefs
+// pointing here via ../../X should stay unchanged.
+const NON_TRANSLATABLE_HREF_PREFIXES = [
+  "_static/", "_sources/", "_images/",
+  "translations/",
+  "genindex", "search",
+];
+
+// The Sphinx global sidebar on vi_VN_mt pages links to English root paths
+// (../../../maintainer/index.html). Rewrite those hrefs so they stay inside
+// /translations/vi_VN_mt/ — without touching body content like the language
+// switcher and the "Original:" field, which must still reach English.
+function rewriteSidebarLinks(body: string): string {
+  const startMarker = '<div class="sphinxsidebar"';
+  const endMarker = '<div class="documentwrapper"';
+  const start = body.indexOf(startMarker);
+  if (start < 0) return body;
+  const end = body.indexOf(endMarker, start);
+  if (end < 0) return body;
+
+  const sidebar = body.slice(start, end);
+  const rewritten = sidebar.replace(
+    /href="((?:\.\.\/)+)([^"#?]+)([#?][^"]*)?"/g,
+    (match, dots, path, suffix) => {
+      if (NON_TRANSLATABLE_HREF_PREFIXES.some((p) => path.startsWith(p))) {
+        return match;
+      }
+      return `href="${dots}translations/vi_VN_mt/${path}${suffix ?? ""}"`;
+    }
+  );
+  return body.slice(0, start) + rewritten + body.slice(end);
+}
+
 function rewriteKernelOrgReferences(body: string, requestURL: URL): string {
   const targetOrigin = requestURL.origin;
   return body
@@ -82,13 +115,23 @@ export default {
     if (p === "/" || p === "/index.html") {
       return Response.redirect(new URL("/translations/vi_VN_mt/", url).toString(), 302);
     }
-    if (!p.startsWith("/translations/") && !p.startsWith("/_static/") && !p.startsWith("/_sources/") && !p.endsWith(".html")) {
+    if (!p.startsWith("/translations/") && !p.startsWith("/_static/") && !p.startsWith("/_sources/") && !p.startsWith("/_images/") && p !== "/genindex.html" && p !== "/search.html") {
       const viPath = `/translations/vi_VN_mt${p}`;
       const viURL = new URL(url);
       viURL.pathname = viPath;
       const viResponse = await env.ASSETS.fetch(new Request(viURL, request));
-      if (viResponse.status !== 404) {
+      if (viResponse.status !== 404 && viResponse.status !== 307 && viResponse.status !== 308) {
         return Response.redirect(new URL(viPath, url).toString(), 302);
+      }
+      if (viResponse.status === 307 || viResponse.status === 308) {
+        const loc = viResponse.headers.get("location");
+        if (loc) {
+          const locURL = new URL(loc, viURL);
+          const viFollow = await env.ASSETS.fetch(new Request(locURL, request));
+          if (viFollow.status !== 404) {
+            return Response.redirect(locURL.toString(), 302);
+          }
+        }
       }
     }
 
@@ -121,16 +164,36 @@ export default {
           statusText: assetResponse.statusText,
         });
       }
-      // Rewrite UI strings on vi_VN_mt HTML pages so sidebar/theme text is Vietnamese.
+      // Rewrite UI strings + sidebar hrefs on vi_VN_mt HTML pages so theme
+      // text and navigation both stay Vietnamese.
       const contentType = assetResponse.headers.get("content-type") ?? "";
       if (p.startsWith("/translations/vi_VN_mt/") && contentType.startsWith("text/html")) {
         const body = await assetResponse.text();
-        const rewritten = rewriteViStrings(body);
+        const rewritten = rewriteSidebarLinks(rewriteViStrings(body));
         const headers = new Headers(assetResponse.headers);
         headers.delete("content-length");
         return new Response(rewritten, { headers, status: assetResponse.status, statusText: assetResponse.statusText });
       }
       return assetResponse;
+    }
+
+    // Missing under /translations/vi_VN_mt/ — fall back to the English page
+    // so sidebar links that point into the Vietnamese tree don't dead-end when
+    // a translation isn't built yet.
+    if (p.startsWith("/translations/vi_VN_mt/")) {
+      const englishPath = p.slice("/translations/vi_VN_mt".length);
+      const englishURL = new URL(url);
+      englishURL.pathname = englishPath;
+      const englishResponse = await env.ASSETS.fetch(new Request(englishURL, request));
+      if (englishResponse.status === 307 || englishResponse.status === 308) {
+        const loc = englishResponse.headers.get("location");
+        if (loc) {
+          const follow = await env.ASSETS.fetch(new Request(new URL(loc, englishURL), request));
+          if (follow.status !== 404) return follow;
+        }
+      } else if (englishResponse.status !== 404) {
+        return englishResponse;
+      }
     }
 
     return proxyToKernelOrg(request, url);
