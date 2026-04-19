@@ -33,6 +33,11 @@ const VI_STRINGS: [string, string][] = [
   ["title=\"Link to this image\"", "title=\"Liên kết đến hình này\""],
   ["title=\"Link to this code\"", "title=\"Liên kết đến khối mã này\""],
   ["title=\"Permalink to this headline\"", "title=\"Liên kết cố định đến tiêu đề này\""],
+  // Project branding: sidebar logo text, <title> suffix, and logo alt text.
+  // The version number is constant per deploy so a literal match is safe.
+  [">The Linux Kernel</a>", ">Nhân Linux</a>"],
+  ["The Linux Kernel 7.0.0 documentation", "Tài liệu Nhân Linux 7.0.0"],
+  ["alt=\"Logo of The Linux Kernel\"", "alt=\"Biểu trưng Nhân Linux\""],
   // Admonition titles (Note, Warning, Tip, …). Docutils renders these as
   // <p class="admonition-title">Note</p>; class name stays English.
   ["admonition-title\">Note<", "admonition-title\">Lưu ý<"],
