@@ -14,6 +14,7 @@ const VI_STRINGS: [string, string][] = [
   [">Contents<", ">Mục lục<"],
   [">This Page<", ">Trang này<"],
   [">Show Source<", ">Xem nguồn<"],
+  [">Page source<", ">Nguồn trang<"],
   [">Navigation<", ">Điều hướng<"],
   [">Table of Contents<", ">Mục lục<"],
   [">Search<", ">Tìm kiếm<"],
@@ -22,6 +23,16 @@ const VI_STRINGS: [string, string][] = [
   [">previous<", ">trước đó<"],
   [">Next<", ">Tiếp theo<"],
   [">Previous<", ">Trước đó<"],
+  // Tooltip/title attributes on theme chrome (header search icon, index,
+  // "link to this section" anchors). These are visible on hover.
+  ["title=\"Search\"", "title=\"Tìm kiếm\""],
+  ["title=\"Index\"", "title=\"Chỉ mục\""],
+  ["title=\"Link to this heading\"", "title=\"Liên kết đến mục này\""],
+  ["title=\"Link to this definition\"", "title=\"Liên kết đến định nghĩa này\""],
+  ["title=\"Link to this table\"", "title=\"Liên kết đến bảng này\""],
+  ["title=\"Link to this image\"", "title=\"Liên kết đến hình này\""],
+  ["title=\"Link to this code\"", "title=\"Liên kết đến khối mã này\""],
+  ["title=\"Permalink to this headline\"", "title=\"Liên kết cố định đến tiêu đề này\""],
   // Admonition titles (Note, Warning, Tip, …). Docutils renders these as
   // <p class="admonition-title">Note</p>; class name stays English.
   ["admonition-title\">Note<", "admonition-title\">Lưu ý<"],
@@ -114,6 +125,20 @@ function rewriteSidebarLinks(body: string): string {
   return body.slice(0, start) + rewritten + body.slice(end);
 }
 
+async function applyViRewrites(response: Response): Promise<Response> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.startsWith("text/html")) return response;
+  const body = await response.text();
+  const rewritten = rewriteSidebarLinks(rewriteViStrings(body));
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(rewritten, {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
+}
+
 function rewriteKernelOrgReferences(body: string, requestURL: URL): string {
   const targetOrigin = requestURL.origin;
   return body
@@ -186,22 +211,17 @@ export default {
           statusText: assetResponse.statusText,
         });
       }
-      // Rewrite UI strings + sidebar hrefs on vi_VN_mt HTML pages so theme
-      // text and navigation both stay Vietnamese.
-      const contentType = assetResponse.headers.get("content-type") ?? "";
-      if (p.startsWith("/translations/vi_VN_mt/") && contentType.startsWith("text/html")) {
-        const body = await assetResponse.text();
-        const rewritten = rewriteSidebarLinks(rewriteViStrings(body));
-        const headers = new Headers(assetResponse.headers);
-        headers.delete("content-length");
-        return new Response(rewritten, { headers, status: assetResponse.status, statusText: assetResponse.statusText });
-      }
-      return assetResponse;
+      // Rewrite UI strings + sidebar hrefs on any HTML asset we serve — this
+      // site is Vietnamese-default (root /_, /search.html, /genindex.html
+      // are reached only via the vi redirect), so every HTML page should get
+      // vi chrome regardless of whether its URL is under /translations/vi_VN_mt/.
+      return applyViRewrites(assetResponse);
     }
 
     // Missing under /translations/vi_VN_mt/ — fall back to the English page
     // so sidebar links that point into the Vietnamese tree don't dead-end when
-    // a translation isn't built yet.
+    // a translation isn't built yet. Apply vi rewrites so the fallback page's
+    // sidebar and UI chrome still read Vietnamese.
     if (p.startsWith("/translations/vi_VN_mt/")) {
       const englishPath = p.slice("/translations/vi_VN_mt".length);
       const englishURL = new URL(url);
@@ -211,10 +231,10 @@ export default {
         const loc = englishResponse.headers.get("location");
         if (loc) {
           const follow = await env.ASSETS.fetch(new Request(new URL(loc, englishURL), request));
-          if (follow.status !== 404) return follow;
+          if (follow.status !== 404) return applyViRewrites(follow);
         }
       } else if (englishResponse.status !== 404) {
-        return englishResponse;
+        return applyViRewrites(englishResponse);
       }
     }
 
