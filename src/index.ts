@@ -38,6 +38,24 @@ const VI_STRINGS: [string, string][] = [
   [">The Linux Kernel</a>", ">Nhân Linux</a>"],
   ["The Linux Kernel 7.0.0 documentation", "Tài liệu Nhân Linux 7.0.0"],
   ["alt=\"Logo of The Linux Kernel\"", "alt=\"Biểu trưng Nhân Linux\""],
+  // Browser tab titles on special Sphinx pages. The body <h1> already
+  // uses the >Index</>Search< patterns above; the <title> tag has no
+  // angle-bracket boundary, so needs its own literal.
+  ["<title>Search &#8212;", "<title>Tìm kiếm &#8212;"],
+  ["<title>Index &#8212;", "<title>Chỉ mục &#8212;"],
+  // Search page body copy.
+  [
+    "Please activate JavaScript to enable the search functionality.",
+    "Vui lòng bật JavaScript để sử dụng chức năng tìm kiếm.",
+  ],
+  [
+    "Searching for multiple words only shows matches that contain",
+    "Tìm kiếm nhiều từ chỉ hiển thị kết quả chứa",
+  ],
+  ["all words.", "tất cả các từ."],
+  // Footer strings shared by every page.
+  ["The kernel development community", "Cộng đồng phát triển nhân Linux"],
+  ["Powered by <a", "Được cung cấp bởi <a"],
   // Admonition titles (Note, Warning, Tip, …). Docutils renders these as
   // <p class="admonition-title">Note</p>; class name stays English.
   ["admonition-title\">Note<", "admonition-title\">Lưu ý<"],
